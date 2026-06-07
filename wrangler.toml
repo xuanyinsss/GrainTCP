@@ -2,5 +2,5 @@ name = "graintcp"
 main = "GrainTCP.js"
 compatibility_date = "2025-04-07"
 
-account_id = "5769086c99be083c06457a3e098d3dba"
+account_id = "a9d1e22028060b2d52a7ffc69ceedc4b"
 workers_dev = true
