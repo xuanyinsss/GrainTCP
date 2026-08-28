@@ -1,5 +1,5 @@
 const CFG = {
-  id: 'dd052c98-bd4a-4c04-a0a7-bfd2fa9f5001', // 替换为你的 UUID
+  id: 'dd052c98-bd4a-4c04-a0a7-bfd2fa9f5001',
   chunk: 64 * 1024,
   dnPack: 32 * 1024,
   dnTail: 512,
@@ -7,10 +7,7 @@ const CFG = {
   upPack: 16 * 1024,
   upQMax: 256 * 1024,
   maxED: 8 * 1024,
-  concur: 4,
-  // 默认反代目标（可被 URL 参数覆盖）
-  targetIP: '',    // 留空则使用客户端请求的目标
-  targetPort: 0,
+  concur: 4
 };
 
 export default {
@@ -20,30 +17,7 @@ export default {
       : new Response('Hello world!')
 };
 
-const hex = c => (c > 64 ? c + 9 : c) & 0xf;
-const idB = new Uint8Array(16),
-  dec = new TextDecoder();
-for (let i = 0, p = 0, c, h; i < 16; i++) {
-  c = CFG.id.charCodeAt(p++);
-  c === 45 && (c = CFG.id.charCodeAt(p++));
-  h = hex(c);
-  c = CFG.id.charCodeAt(p++);
-  c === 45 && (c = CFG.id.charCodeAt(p++));
-  idB[i] = h << 4 | hex(c);
-}
-const [I0, I1, I2, I3, I4, I5, I6, I7, I8, I9, I10, I11, I12, I13, I14, I15] = idB;
-
-const matchID = c =>
-  c[1] === I0 && c[2] === I1 && c[3] === I2 && c[4] === I3 &&
-  c[5] === I4 && c[6] === I5 && c[7] === I6 && c[8] === I7 &&
-  c[9] === I8 && c[10] === I9 && c[11] === I10 && c[12] === I11 &&
-  c[13] === I12 && c[14] === I13 && c[15] === I14 && c[16] === I15;
-
-const addr = (t, b) =>
-  t === 1 ? `${b[0]}.${b[1]}.${b[2]}.${b[3]}` :
-  t === 3 ? dec.decode(b) :
-  `[${Array.from({ length: 8 }, (_, i) => ((b[i * 2] << 8) | b[i * 2 + 1]).toString(16)).join(':')}]`;
-
+// ---------- 工具函数 ----------
 const sprout = (f, h, p, s = f.connect({ hostname: h, port: p })) =>
   s.opened.then(() => s);
 
@@ -57,34 +31,11 @@ const raceSprout = (f, h, p) => {
   });
 };
 
-const parseAddr = (b, o, t) => {
-  const l = t === 3 ? b[o++] : t === 1 ? 4 : t === 4 ? 16 : null;
-  if (l === null) return null;
-  const n = o + l;
-  return n > b.length ? null : { targetAddrBytes: b.subarray(o, n), dataOffset: n };
-};
-
-const vless = c => {
-  if (c.length < 24 || !matchID(c)) return null;
-  let o = 19 + c[17];
-  const p = (c[o] << 8) | c[o + 1];
-  let t = c[o + 2];
-  if (t !== 1) t += 1;
-  const a = parseAddr(c, o + 3, t);
-  return a ? { addrType: t, ...a, port: p } : null;
-};
-
+// 上行队列（缓冲客户端发来的数据）
 const mkQ = (cap, qCap = cap, itemsMax = Math.max(1, qCap >> 8)) => {
   let q = [], h = 0, qB = 0, buf = null;
   const trim = () => { h > 32 && h * 2 >= q.length && (q = q.slice(h), h = 0); };
-  const take = () => {
-    if (h >= q.length) return null;
-    const d = q[h];
-    q[h++] = undefined;
-    qB -= d.byteLength;
-    trim();
-    return d;
-  };
+  const take = () => { if (h >= q.length) return null; const d = q[h]; q[h++] = undefined; qB -= d.byteLength; trim(); return d; };
   return {
     get bytes() { return qB; },
     get size() { return q.length - h; },
@@ -103,8 +54,7 @@ const mkQ = (cap, qCap = cap, itemsMax = Math.max(1, qCap >> 8)) => {
       if (!d || h >= q.length || d.byteLength >= cap) return [d, 0];
       let n = d.byteLength, e = h;
       while (e < q.length) {
-        const x = q[e],
-          nn = n + x.byteLength;
+        const x = q[e], nn = n + x.byteLength;
         if (nn > cap) break;
         n = nn;
         e++;
@@ -125,17 +75,10 @@ const mkQ = (cap, qCap = cap, itemsMax = Math.max(1, qCap >> 8)) => {
   };
 };
 
+// 下行发送（将目标数据发回客户端）
 const mkDn = w => {
-  const cap = CFG.dnPack,
-    tail = CFG.dnTail,
-    low = Math.max(4096, tail << 3);
-  let pb = new Uint8Array(cap),
-    p = 0,
-    tp = 0,
-    mq = 0,
-    gen = 0,
-    qk = 0,
-    qr = 0;
+  const cap = CFG.dnPack, tail = CFG.dnTail, low = Math.max(4096, tail << 3);
+  let pb = new Uint8Array(cap), p = 0, tp = 0, mq = 0, gen = 0, qk = 0, qr = 0;
   const reap = () => {
     tp && clearTimeout(tp);
     tp = 0;
@@ -158,19 +101,14 @@ const mkDn = w => {
         tp = 0;
         if (!p) return;
         if (cap - p < tail) return reap();
-        if (qr < 2 && (gen !== qk || p < low)) {
-          qr++;
-          qk = gen;
-          return ripen();
-        }
+        if (qr < 2 && (gen !== qk || p < low)) { qr++; qk = gen; return ripen(); }
         reap();
       }, Math.max(CFG.dnMs, 1));
     });
   };
   return {
     send(u) {
-      let o = 0,
-        n = u?.byteLength || 0;
+      let o = 0, n = u?.byteLength || 0;
       if (!n) return;
       while (o < n) {
         if (!p && n - o >= cap) {
@@ -192,9 +130,9 @@ const mkDn = w => {
   };
 };
 
+// 从目标读取数据并转发给客户端
 const mill = async (rd, w) => {
-  const r = rd.getReader({ mode: 'byob' }),
-    tx = mkDn(w);
+  const r = rd.getReader({ mode: 'byob' }), tx = mkDn(w);
   let buf = new ArrayBuffer(CFG.chunk);
   try {
     for (;;) {
@@ -217,54 +155,20 @@ const mill = async (rd, w) => {
   }
 };
 
+// ---------- WebSocket 主逻辑 ----------
 const ws = async req => {
-  // ========== 解析动态反代目标（从 URL 中提取） ==========
-  const url = new URL(req.url);
-  let dynIP = null, dynPort = null;
-
-  // 1. 优先从查询参数获取
-  let paramIP = url.searchParams.get('proxyip') || url.searchParams.get('p');
-  if (paramIP) {
-    const parts = paramIP.split(':');
-    dynIP = parts[0];
-    if (parts.length === 2) dynPort = parseInt(parts[1]);
-  }
-  // 查询参数中的 port 可以覆盖
-  if (url.searchParams.has('port')) {
-    dynPort = parseInt(url.searchParams.get('port'));
-  }
-
-  // 2. 如果查询参数没有，尝试从路径中解析 /proxyip=... 或 /p=...
-  if (!dynIP) {
-    const path = url.pathname;
-    const match = path.match(/^\/(?:proxyip|p)=([^&]+)/);
-    if (match) {
-      const val = match[1];
-      const parts = val.split(':');
-      dynIP = parts[0];
-      if (parts.length === 2) dynPort = parseInt(parts[1]);
-    }
-  }
-
-  // 3. 若未指定，使用 CFG 默认值
-  const finalTargetIP = dynIP || CFG.targetIP;
-  const finalTargetPort = dynPort || CFG.targetPort;
-  // ==================================================
-
   const [client, server] = Object.values(new WebSocketPair());
   server.accept({ allowHalfOpen: true });
   server.binaryType = 'arraybuffer';
   const fetcher = req.fetcher;
 
+  // 可选：ed 握手（sec-websocket-protocol）
   const edStr = req.headers.get('sec-websocket-protocol');
   const ed = edStr && edStr.length <= CFG.maxED * 4 / 3 + 4
-    ? /** @type {*} */ (Uint8Array).fromBase64(edStr, { alphabet: 'base64url' })
+    ? Uint8Array.fromBase64(edStr, { alphabet: 'base64url' })
     : null;
 
-  let curW = null,
-    sock = null,
-    closed = false,
-    busy = false;
+  let curW = null, sock = null, closed = false, busy = false;
   const uq = mkQ(CFG.upPack, CFG.upQMax, CFG.upQMax >> 8);
 
   const wither = () => {
@@ -277,18 +181,37 @@ const ws = async req => {
   };
 
   const toU8 = d =>
-    d instanceof Uint8Array ? d :
-    ArrayBuffer.isView(d) ? new Uint8Array(d.buffer, d.byteOffset, d.byteLength) :
-    new Uint8Array(d);
+    d instanceof Uint8Array ? d
+    : ArrayBuffer.isView(d) ? new Uint8Array(d.buffer, d.byteOffset, d.byteLength)
+    : new Uint8Array(d);
 
   const sow = d => {
-    const u = toU8(d),
-      n = u.byteLength;
+    const u = toU8(d), n = u.byteLength;
     if (!n) return 1;
     if (uq.sow(u)) return 1;
     wither();
     return 0;
   };
+
+  // ---------- 路径解析：必须 /proxyip=目标 ----------
+  const url = new URL(req.url);
+  const pathname = url.pathname;
+  if (!pathname.startsWith('/proxyip=')) {
+    return new Response('Bad Request: missing /proxyip= in path', { status: 400 });
+  }
+  const target = pathname.substring('/proxyip='.length);
+  if (!target) {
+    return new Response('Bad Request: empty target', { status: 400 });
+  }
+  let host = target, port = 443;
+  if (target.includes(':')) {
+    const parts = target.split(':');
+    host = parts[0];
+    port = parseInt(parts[1], 10);
+    if (isNaN(port) || port < 1 || port > 65535) port = 443;
+  }
+  const pathTarget = { host, port };
+  // ------------------------------------------------
 
   const thresh = async () => {
     if (busy || closed) return;
@@ -297,22 +220,16 @@ const ws = async req => {
       for (;;) {
         if (closed) break;
         if (!sock) {
-          const [d] = uq.bundle();
-          if (!d) break;
-          const r = vless(d);
-          if (!r) throw wither();
-          server.send(new Uint8Array([d[0], 0]));
-
-          // ★ 使用动态目标（优先 URL 指定 → CFG → 客户端原始目标）
-          const host = finalTargetIP || addr(r.addrType, r.targetAddrBytes);
-          const port = finalTargetPort || r.port;
-          const payload = d.subarray(r.dataOffset);
-
-          sock = await raceSprout(fetcher, host, port);
+          const [first] = uq.bundle();
+          let payload = first || null;
+          // 发送握手成功标志（可选）
+          server.send(new Uint8Array([0]));
+          sock = await raceSprout(fetcher, pathTarget.host, pathTarget.port);
           if (!sock) throw wither();
           curW = sock.writable.getWriter();
-          const [first] = uq.bundle(payload);
-          first?.byteLength && await curW.write(first);
+          if (payload && payload.byteLength) {
+            await curW.write(payload);
+          }
           mill(sock.readable, server).finally(() => wither());
           continue;
         }
@@ -322,14 +239,16 @@ const ws = async req => {
       }
     } catch { wither(); } finally {
       busy = false;
-      !uq.empty && !closed && queueMicrotask(thresh);
+      if (!uq.empty && !closed) queueMicrotask(thresh);
     }
   };
 
   if (ed && sow(ed)) thresh();
 
   server.addEventListener('message', e => {
-    closed || (sow(e.data) && thresh());
+    if (!closed) {
+      sow(e.data) && thresh();
+    }
   });
   server.addEventListener('close', () => wither());
   server.addEventListener('error', () => wither());
