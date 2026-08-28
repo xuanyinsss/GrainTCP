@@ -1,7 +1,18 @@
-const CFG = { id: '2523c510-9ff0-415b-9582-93949bfae7e3', chunk: 64 * 1024, dnPack: 32 * 1024, dnTail: 512, dnQr: 4, upPack: 20 * 1024, maxED: 8 * 1024, concur: 4 };
-let userID = ''2523c510-9ff0-415b-9582-93949bfae7e3;
-let proxyIP = 'proxyip.JP.cmliussss.net'; // 保留但未使用
+// ================== 配置 ==================
+const CFG = {
+  id: '2523c510-9ff0-415b-9582-93949bfae7e3',
+  chunk: 64 * 1024,
+  dnPack: 32 * 1024,
+  dnTail: 512,
+  dnQr: 4,
+  upPack: 20 * 1024,
+  maxED: 8 * 1024,
+  concur: 4
+};
+let userID = '2523c510-9ff0-415b-9582-93949bfae7e3';
+let proxyIPs = [proxyip.JP.cmliussss.net:443]; // 解析后的 [{host, port}]
 
+// ================== 工具函数（保持不变） ==================
 const hex = c => (c > 64 ? c + 9 : c) & 0xF;
 const idB = new Uint8Array(16);
 const dec = new TextDecoder();
@@ -162,20 +173,51 @@ const mill = async (rd, w) => {
   }
 };
 
+// ================== 解析 proxyip（支持多地址，逗号分隔，每项可含端口） ==================
+const parseProxyIPs = (str) => {
+  if (!str) return [];
+  return str.split(',').map(item => {
+    item = item.trim();
+    if (!item) return null;
+    const parts = item.split(':');
+    if (parts.length === 2) {
+      return { host: parts[0], port: parseInt(parts[1], 10) };
+    } else {
+      return { host: parts[0], port: null }; // 端口后续从数据包取
+    }
+  }).filter(Boolean);
+};
+
+// ================== WebSocket 处理器 ==================
 const vlessOverWSHandler = async req => {
   const url = new URL(req.url);
-  let proxyTarget = url.searchParams.get('proxyip');
-  if (!proxyTarget) {
+  // 1. 获取 proxyip 参数（优先 URL 参数，其次路径）
+  let proxyParam = url.searchParams.get('proxyip');
+  if (!proxyParam) {
     const pathMatch = url.pathname.match(/^\/proxyip\/(.+)/);
-    if (pathMatch) proxyTarget = pathMatch[1];
+    if (pathMatch) proxyParam = pathMatch[1];
   }
 
+  // 2. 解析最终使用的 proxy 列表（环境变量作为默认）
+  let proxyList = [];
+  if (proxyParam) {
+    // 如果请求中指定了，解析为单节点列表（暂不支持多个）
+    const parsed = parseProxyIPs(proxyParam);
+    if (parsed.length) proxyList = parsed;
+  } else {
+    // 否则使用环境变量 PROXYIP 解析出的列表
+    proxyList = parseProxyIPs(proxyIPsRaw);
+  }
+
+  // 3. 获取真实 IP（用于安全检查）
   const realIP = req.headers.get('CF-Connecting-IP') || req.headers.get('x-forwarded-for')?.split(',')[0]?.trim();
-  // 如果没有提供 proxyTarget，则必须经过 Cloudflare
-  if (!proxyTarget && !realIP) {
+
+  // 4. 安全检查：如果未指定 proxy 参数，则必须经过 Cloudflare
+  if (!proxyParam && !realIP) {
     return new Response('Forbidden', { status: 403 });
   }
 
+  // ========== 以下为原 WebSocket 处理 ==========
   const [client, server] = Object.values(new WebSocketPair());
   server.accept({ allowHalfOpen: true });
   server.binaryType = 'arraybuffer';
@@ -200,6 +242,7 @@ const vlessOverWSHandler = async req => {
     wither();
     return 0;
   };
+
   const thresh = async () => {
     if (busy || closed) return;
     busy = true;
@@ -212,11 +255,24 @@ const vlessOverWSHandler = async req => {
           const r = relay(d);
           if (!r) throw wither();
           server.send(new Uint8Array([d[0], 0]));
-          // 目标主机：如果提供了 proxyTarget 则使用，否则从数据包解析
-          const host = proxyTarget || addr(r.addrType, r.targetAddrBytes);
-          const port = r.port;
+
+          // ----- 关键：决定连接目标 -----
+          let targetHost, targetPort;
+          if (proxyList.length > 0) {
+            // 使用 proxyip 列表中的第一个（可扩展轮询）
+            const proxy = proxyList[0];
+            targetHost = proxy.host;
+            targetPort = proxy.port !== null ? proxy.port : r.port; // 若未指定端口，使用原端口
+          } else {
+            // 直连：从数据包解析
+            targetHost = addr(r.addrType, r.targetAddrBytes);
+            targetPort = r.port;
+          }
+          // ----- 结束 -----
+
           const payload = d.subarray(r.dataOffset);
-          sock = await raceSprout(fetcher, host, port);
+          // 尝试连接（如果 proxyList 有多个，可在此处循环尝试，此处简化）
+          sock = await raceSprout(fetcher, targetHost, targetPort);
           if (!sock) throw wither();
           curW = sock.writable.getWriter();
           const [first] = uq.bundle(payload);
@@ -231,6 +287,7 @@ const vlessOverWSHandler = async req => {
     } catch { wither(); }
     finally { busy = false; !uq.empty && !closed && thresh(); }
   };
+
   if (ed && sow(ed)) thresh();
   server.addEventListener('message', e => { closed || (sow(e.data) && thresh()); });
   server.addEventListener('close', () => wither());
@@ -238,13 +295,17 @@ const vlessOverWSHandler = async req => {
   return new Response(null, { status: 101, webSocket: client, headers: { 'Sec-WebSocket-Extensions': '' } });
 };
 
+// ================== 辅助：生成 VLESS 链接 ==================
 const getVLESSConfig = (uuid, host) => `vless://${uuid}@${host}:443?encryption=none&security=tls&sni=${host}&fp=chrome&type=ws&host=${host}&path=%2F${uuid}#VLESS+WS`;
+
+// ================== 全局变量（存放原始环境变量） ==================
+let proxyIPsRaw = '';
 
 export default {
   fetch: async (request, env, ctx) => {
     try {
       userID = env.UUID || userID;
-      proxyIP = env.PROXYIP || proxyIP; // 保留但不用于逻辑
+      proxyIPsRaw = env.PROXYIP || ''; // 保存原始字符串，供后续解析
       const upgradeHeader = request.headers.get('Upgrade');
       if (!upgradeHeader || upgradeHeader !== 'websocket') {
         const url = new URL(request.url);
