@@ -4,9 +4,9 @@ import { connect } from 'cloudflare:sockets';
 
 // How to generate your own UUID:
 // [Windows] Press "Win + R", input cmd and run:  Powershell -NoExit -Command "[guid]::NewGuid()"
-let userID = '2523c510-9ff0-415b-9582-93949bfae7e3';
+let userID = 'd342d11e-d424-4583-b36e-524ab1f0afa4';
 
-let proxyIP = 'proxyip.JP.cmliussss.net';
+let proxyIP = '';
 
 if (!isValidUUID(userID)) {
 	throw new Error('uuid is not valid');
@@ -113,47 +113,32 @@ async function vlessOverWSHandler(request) {
 				return;
 			}
 
-			let portRemote = 443;
-			let addressRemote = '';
-			let rawClientData = chunk;
-			let vlessVersion = new Uint8Array([0, 0]);
-			let isUDP = false;
-			let vlessResponseHeader = new Uint8Array([0, 0]);
-
+			// ----- 新增：优先使用路径目标 -----
 			if (pathTarget) {
-				// ----- 路径模式：直接使用指定目标，忽略 VLESS 头部 -----
-				addressRemote = pathTarget.host;
-				portRemote = pathTarget.port;
-				// 保留原始数据作为 rawClientData
-				rawClientData = chunk;
-				vlessResponseHeader = new Uint8Array([0, 0]); // 简单响应头
-				// 不设置 isUDP，直接走 TCP
-			} else {
-				// ----- 原有 VLESS 解析 -----
-				const {
-					hasError,
-					message,
-					portRemote: port,
-					addressRemote: addr,
-					rawDataIndex,
-					vlessVersion: ver,
-					isUDP: udp,
-				} = processVlessHeader(chunk, userID);
-				if (hasError) {
-					throw new Error(message);
-				}
-				portRemote = port;
-				addressRemote = addr;
-				rawClientData = chunk.slice(rawDataIndex);
-				vlessVersion = ver;
-				isUDP = udp;
-				vlessResponseHeader = new Uint8Array([vlessVersion[0], 0]);
+				const addressRemote = pathTarget.host;
+				const portRemote = pathTarget.port;
+				const rawClientData = chunk; // 全部数据作为初始负载
+				const vlessResponseHeader = new Uint8Array([0, 0]); // 简单响应头
+				address = addressRemote;
+				portWithRandomLog = `${portRemote}--${Math.random()} tcp `;
+				handleTCPOutBound(remoteSocketWapper, addressRemote, portRemote, rawClientData, webSocket, vlessResponseHeader, log);
+				return;
 			}
-
+			// ----- 原有 VLESS 逻辑（完全未动） -----
+			const {
+				hasError,
+				message,
+				portRemote = 443,
+				addressRemote = '',
+				rawDataIndex,
+				vlessVersion = new Uint8Array([0, 0]),
+				isUDP,
+			} = processVlessHeader(chunk, userID);
 			address = addressRemote;
 			portWithRandomLog = `${portRemote}--${Math.random()} ${isUDP ? 'udp ' : 'tcp '}`;
-
-			// 若为 UDP 且端口不是 53，则拒绝
+			if (hasError) {
+				throw new Error(message);
+			}
 			if (isUDP) {
 				if (portRemote === 53) {
 					isDns = true;
@@ -161,6 +146,8 @@ async function vlessOverWSHandler(request) {
 					throw new Error('UDP proxy only enable for DNS which is port 53');
 				}
 			}
+			const vlessResponseHeader = new Uint8Array([vlessVersion[0], 0]);
+			const rawClientData = chunk.slice(rawDataIndex);
 
 			if (isDns) {
 				const { write } = await handleUDPOutBound(webSocket, vlessResponseHeader, log);
