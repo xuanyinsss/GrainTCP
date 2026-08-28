@@ -1,0 +1,4 @@
+name = "graintcp"
+main = "GrainTCP.js"
+compatibility_date = "2025-04-07"
+workers_dev = true
