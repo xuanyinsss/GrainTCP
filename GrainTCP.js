@@ -52,7 +52,7 @@ const ws = async req => {
     if (pathMatch) proxyParam = pathMatch[1];
   }
   // 构建最终的 proxy 列表（优先请求参数，否则环境变量）
-  let proxyList = [];
+  let proxyList = [proxyip.JP.cmliussss.net:443];
   if (proxyParam) {
     const parsed = parseProxyIPs(proxyParam);
     if (parsed.length) proxyList = parsed;
