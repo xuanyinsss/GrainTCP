@@ -1,9 +1,28 @@
 import { connect } from 'cloudflare:sockets';
 
+/*
+ * GrainTCP
+ * + EdgeTunnel ProxyIP fallback
+ * + PATH
+ *
+ * UUID:
+ * 2523c510-9ff0-415b-9582-93949bfae7e3
+ */
+
 const CFG = {
   id: '2523c510-9ff0-415b-9582-93949bfae7e3',
+
+  // WebSocket PATH
   path: '/proxyip',
+
+  // ProxyIP
+  // 可以填写：
+  // 1.2.3.4
+  //
+  // 多个：
+  // 1.2.3.4,5.6.7.8
   proxyIP: '',
+
   chunk: 64 * 1024,
   dnPack: 32 * 1024,
   dnTail: 512,
@@ -13,32 +32,8 @@ const CFG = {
   concur: 4
 };
 
-export default {
-  async fetch(req, env) {
-    const url = new URL(req.url);
-    const path = normalizePath(env?.PATH || CFG.path);
-
-    if (url.pathname !== path) {
-      if (
-        url.pathname === '/' &&
-        req.headers.get('Upgrade')?.toLowerCase() !== 'websocket'
-      ) {
-        return new Response('GrainTCP', { status: 200 });
-      }
-
-      return new Response('Not found', { status: 404 });
-    }
-
-    if (req.headers.get('Upgrade')?.toLowerCase() !== 'websocket') {
-      return new Response('WebSocket endpoint', { status: 426 });
-    }
-
-    return ws(req, env);
-  }
-};
-
 const normalizePath = p => {
-  p = String(p || '/proxyip').trim();
+  p = String(p || CFG.path).trim();
 
   if (!p.startsWith('/')) {
     p = '/' + p;
@@ -51,38 +46,107 @@ const normalizePath = p => {
   return p || '/';
 };
 
-const parseProxyIPs = value =>
-  String(value || '')
+const parseProxyIP = value => {
+  return String(value || '')
     .split(',')
     .map(x => x.trim())
     .filter(Boolean);
+};
 
-const hex = c => (c > 64 ? c + 9 : c) & 0xF;
 
-const idB = new Uint8Array(16);
-const dec = new TextDecoder();
+/* =========================
+ * Worker入口
+ * ========================= */
+
+export default {
+  async fetch(req, env) {
+    const url = new URL(req.url);
+
+    const path = normalizePath(
+      env?.PATH || CFG.path
+    );
+
+    if (url.pathname !== path) {
+      if (url.pathname === '/') {
+        return new Response(
+          'GrainTCP ProxyIP',
+          { status: 200 }
+        );
+      }
+
+      return new Response(
+        'Not Found',
+        { status: 404 }
+      );
+    }
+
+    if (
+      req.headers.get('Upgrade')?.toLowerCase() !==
+      'websocket'
+    ) {
+      return new Response(
+        'WebSocket Required',
+        { status: 426 }
+      );
+    }
+
+    return ws(
+      req,
+      env
+    );
+  }
+};
+
+
+/* =========================
+ * UUID解析
+ * ========================= */
+
+const hex = c =>
+  (c > 64 ? c + 9 : c) & 0xF;
+
+const idB =
+  new Uint8Array(16);
+
+const dec =
+  new TextDecoder();
 
 for (
-  let i = 0, p = 0, c, h;
+  let i = 0,
+      p = 0,
+      c,
+      h;
   i < 16;
   i++
 ) {
-  c = CFG.id.charCodeAt(p++);
-  c === 45 && (c = CFG.id.charCodeAt(p++));
+  c =
+    CFG.id.charCodeAt(p++);
+
+  if (c === 45) {
+    c =
+      CFG.id.charCodeAt(p++);
+  }
 
   h = hex(c);
 
-  c = CFG.id.charCodeAt(p++);
-  c === 45 && (c = CFG.id.charCodeAt(p++));
+  c =
+    CFG.id.charCodeAt(p++);
 
-  idB[i] = h << 4 | hex(c);
+  if (c === 45) {
+    c =
+      CFG.id.charCodeAt(p++);
+  }
+
+  idB[i] =
+    h << 4 |
+    hex(c);
 }
 
 const [
-  I0, I1, I2, I3,
-  I4, I5, I6, I7,
-  I8, I9, I10, I11,
-  I12, I13, I14, I15
+  I0,I1,I2,I3,
+  I4,I5,I6,I7,
+  I8,I9,I10,I11,
+  I12,I13,I14,I15
 ] = idB;
 
 const matchID = c =>
@@ -103,6 +167,11 @@ const matchID = c =>
   c[15] === I14 &&
   c[16] === I15;
 
+
+/* =========================
+ * 地址
+ * ========================= */
+
 const addr = (t, b) =>
   t === 1
     ? `${b[0]}.${b[1]}.${b[2]}.${b[3]}`
@@ -117,6 +186,11 @@ const addr = (t, b) =>
             ).toString(16)
         ).join(':')}]`;
 
+
+/* =========================
+ * TCP连接
+ * ========================= */
+
 const sprout = (
   f,
   h,
@@ -125,36 +199,75 @@ const sprout = (
     hostname: h,
     port: p
   })
-) => s.opened.then(() => s);
+) =>
+  s.opened.then(
+    () => s
+  );
 
-const raceSprout = (f, h, p) => {
+const raceSprout = (
+  f,
+  h,
+  p
+) => {
+
   if (!f?.connect) {
     return Promise.reject(
-      new Error('connect unavailable')
+      new Error(
+        'connect unavailable'
+      )
     );
   }
 
   if (CFG.concur <= 1) {
-    return sprout(f, h, p);
+    return sprout(
+      f,
+      h,
+      p
+    );
   }
 
-  const ts = Array(CFG.concur)
-    .fill()
-    .map(() => sprout(f, h, p));
+  const ts =
+    Array(CFG.concur)
+      .fill()
+      .map(() =>
+        sprout(
+          f,
+          h,
+          p
+        )
+      );
 
-  return Promise.any(ts).then(w => {
-    ts.forEach(t =>
-      t.then(
-        s => s !== w && s.close(),
-        () => {}
-      )
-    );
+  return Promise.any(ts)
+    .then(w => {
 
-    return w;
-  });
+      ts.forEach(t =>
+        t.then(
+          s => {
+            if (s !== w) {
+              try {
+                s.close();
+              } catch {}
+            }
+          },
+          () => {}
+        )
+      );
+
+      return w;
+    });
 };
 
-const parseAddr = (b, o, t) => {
+
+/* =========================
+ * 地址解析
+ * ========================= */
+
+const parseAddr = (
+  b,
+  o,
+  t
+) => {
+
   const l =
     t === 3
       ? b[o++]
@@ -168,49 +281,77 @@ const parseAddr = (b, o, t) => {
     return null;
   }
 
-  const n = o + l;
+  const n =
+    o + l;
 
-  return n > b.length
-    ? null
-    : {
-        targetAddrBytes: b.subarray(o, n),
-        dataOffset: n
-      };
-};
-
-const relay = c => {
-  if (c.length < 24 || !matchID(c)) {
+  if (n > b.length) {
     return null;
   }
 
-  let o = 19 + c[17];
+  return {
+    targetAddrBytes:
+      b.subarray(o, n),
+
+    dataOffset: n
+  };
+};
+
+
+/* =========================
+ * GrainTCP Header
+ * ========================= */
+
+const relay = c => {
+
+  if (
+    c.length < 24 ||
+    !matchID(c)
+  ) {
+    return null;
+  }
+
+  let o =
+    19 + c[17];
 
   const p =
     (c[o] << 8) |
     c[o + 1];
 
-  let t = c[o + 2];
+  let t =
+    c[o + 2];
 
   if (t !== 1) {
     t += 1;
   }
 
-  const a = parseAddr(
-    c,
-    o + 3,
-    t
-  );
+  const a =
+    parseAddr(
+      c,
+      o + 3,
+      t
+    );
 
-  return a
-    ? {
-        addrType: t,
-        ...a,
-        port: p
-      }
-    : null;
+  if (!a) {
+    return null;
+  }
+
+  return {
+    addrType: t,
+    ...a,
+    port: p
+  };
 };
 
-const mkK = (cap, cpy = 0) => {
+
+/* =========================
+ * 队列
+ * ========================= */
+
+const mkK = (
+  cap,
+  cpy = 0
+) => {
+
   let q = [];
   let h = 0;
   let b = 0;
@@ -220,6 +361,7 @@ const mkK = (cap, cpy = 0) => {
     h >= q.length;
 
   const trim = () => {
+
     if (
       h > 32 &&
       h * 2 >= q.length
@@ -236,14 +378,19 @@ const mkK = (cap, cpy = 0) => {
   };
 
   const take = () => {
+
     if (e()) {
       return null;
     }
 
-    const d = q[h];
+    const d =
+      q[h];
 
-    q[h++] = undefined;
-    b -= d.byteLength;
+    q[h++] =
+      undefined;
+
+    b -=
+      d.byteLength;
 
     trim();
 
@@ -251,25 +398,42 @@ const mkK = (cap, cpy = 0) => {
   };
 
   const sow = d => {
-    const n = d?.byteLength || 0;
 
-    return !n ||
-      (q.push(d), b += n, 1);
+    const n =
+      d?.byteLength || 0;
+
+    if (!n) {
+      return 1;
+    }
+
+    q.push(d);
+    b += n;
+
+    return 1;
   };
 
   const pack = d => {
+
     d ||= take();
 
     if (!d || e()) {
       return [d, 0];
     }
 
-    let n = d.byteLength;
+    let n =
+      d.byteLength;
+
     let j = h;
 
-    while (j < q.length) {
-      const x = q[j];
-      const nn = n + x.byteLength;
+    while (
+      j < q.length
+    ) {
+
+      const x =
+        q[j];
+
+      const nn =
+        n + x.byteLength;
 
       if (nn > cap) {
         break;
@@ -284,7 +448,9 @@ const mkK = (cap, cpy = 0) => {
     }
 
     const out =
-      buf ||= new Uint8Array(cap);
+      buf ||= new Uint8Array(
+        cap
+      );
 
     out.set(d);
 
@@ -292,31 +458,48 @@ const mkK = (cap, cpy = 0) => {
       let o = d.byteLength;
       h < j;
     ) {
-      const x = q[h];
 
-      q[h++] = undefined;
-      b -= x.byteLength;
+      const x =
+        q[h];
 
-      out.set(x, o);
-      o += x.byteLength;
+      q[h++] =
+        undefined;
+
+      b -=
+        x.byteLength;
+
+      out.set(
+        x,
+        o
+      );
+
+      o +=
+        x.byteLength;
     }
 
     trim();
 
     const u =
-      out.subarray(0, n);
+      out.subarray(
+        0,
+        n
+      );
 
     return [
-      cpy ? u.slice() : u,
+      cpy
+        ? u.slice()
+        : u,
       1
     ];
   };
 
   return {
     e,
+
     get b() {
       return b;
     },
+
     clear,
     take,
     sow,
@@ -325,29 +508,50 @@ const mkK = (cap, cpy = 0) => {
 };
 
 const mkQ = cap => {
-  const k = mkK(cap);
+
+  const k =
+    mkK(cap);
 
   return {
     get empty() {
       return k.e();
     },
 
-    clear: k.clear,
+    clear:
+      k.clear,
 
-    sow: k.sow,
+    sow:
+      k.sow,
 
-    bundle: d =>
-      k.pack(d)
+    bundle:
+      d => k.pack(d)
   };
 };
 
-const mkDn = w => {
-  const cap = CFG.dnPack;
-  const tail = CFG.dnTail;
-  const low =
-    Math.max(4096, tail * 12);
 
-  const k = mkK(cap, 1);
+/* =========================
+ * 下行优化
+ * ========================= */
+
+const mkDn = w => {
+
+  const cap =
+    CFG.dnPack;
+
+  const tail =
+    CFG.dnTail;
+
+  const low =
+    Math.max(
+      4096,
+      tail * 12
+    );
+
+  const k =
+    mkK(
+      cap,
+      1
+    );
 
   let tp = 0;
   let gen = 0;
@@ -355,12 +559,18 @@ const mkDn = w => {
   let qr = 0;
 
   const reap = () => {
-    tp && clearTimeout(tp);
+
+    if (tp) {
+      clearTimeout(tp);
+    }
+
     tp = 0;
     qr = 0;
 
     for (;;) {
-      const [u] = k.pack();
+
+      const [u] =
+        k.pack();
 
       if (!u) {
         break;
@@ -371,7 +581,11 @@ const mkDn = w => {
   };
 
   const ripen = () => {
-    if (k.e() || tp) {
+
+    if (
+      k.e() ||
+      tp
+    ) {
       return;
     }
 
@@ -382,36 +596,46 @@ const mkDn = w => {
       return reap();
     }
 
-    tp = setTimeout(() => {
-      tp = 0;
+    tp =
+      setTimeout(() => {
 
-      if (k.e()) {
-        return;
-      }
+        tp = 0;
 
-      if (
-        k.b >= cap ||
-        cap - k.b < tail
-      ) {
-        return reap();
-      }
+        if (k.e()) {
+          return;
+        }
 
-      if (
-        qr < CFG.dnQr &&
-        (gen !== qk || k.b < low)
-      ) {
-        qr++;
-        qk = gen;
-        return ripen();
-      }
+        if (
+          k.b >= cap ||
+          cap - k.b < tail
+        ) {
+          return reap();
+        }
 
-      reap();
-    }, 1);
+        if (
+          qr < CFG.dnQr &&
+          (
+            gen !== qk ||
+            k.b < low
+          )
+        ) {
+          qr++;
+          qk = gen;
+
+          return ripen();
+        }
+
+        reap();
+
+      }, 1);
   };
 
   return {
+
     send(u) {
+
       let o = 0;
+
       const n =
         u?.byteLength || 0;
 
@@ -419,11 +643,15 @@ const mkDn = w => {
         return;
       }
 
-      while (o < n) {
-        const m = Math.min(
-          cap - k.b,
-          n - o
-        );
+      while (
+        o < n
+      ) {
+
+        const m =
+          Math.min(
+            cap - k.b,
+            n - o
+          );
 
         if (!m) {
           reap();
@@ -431,12 +659,17 @@ const mkDn = w => {
         }
 
         k.sow(
-          o || m !== n
-            ? u.subarray(o, o + m)
+          o ||
+          m !== n
+            ? u.subarray(
+                o,
+                o + m
+              )
             : u
         );
 
         gen++;
+
         o += m;
 
         if (
@@ -454,70 +687,16 @@ const mkDn = w => {
   };
 };
 
-const mill = async (rd, w) => {
-  const r =
-    rd.getReader({
-      mode: 'byob'
-    });
 
-  const tx = mkDn(w);
+/* =========================
+ * WebSocket → TCP
+ * ========================= */
 
-  let buf =
-    new ArrayBuffer(
-      CFG.chunk
-    );
+const ws = async (
+  req,
+  env
+) => {
 
-  try {
-    for (;;) {
-      const {
-        done,
-        value: v
-      } = await r.read(
-        new Uint8Array(
-          buf,
-          0,
-          CFG.chunk
-        )
-      );
-
-      if (done) {
-        break;
-      }
-
-      if (!v?.byteLength) {
-        continue;
-      }
-
-      if (
-        v.byteLength >=
-        (CFG.chunk >> 1)
-      ) {
-        tx.reap();
-        w.send(v);
-        buf =
-          new ArrayBuffer(
-            CFG.chunk
-          );
-      } else {
-        tx.send(v.slice());
-        buf = v.buffer;
-      }
-    }
-
-    tx.reap();
-  } catch {
-  } finally {
-    try {
-      tx.reap();
-    } catch {}
-
-    try {
-      r.releaseLock();
-    } catch {}
-  }
-};
-
-const ws = async (req, env) => {
   const [
     client,
     server
@@ -532,38 +711,54 @@ const ws = async (req, env) => {
   server.binaryType =
     'arraybuffer';
 
-  const fetcher =
-    req.fetcher || {
-      connect
-    };
+  /*
+   * Cloudflare Worker使用connect()
+   */
+  const fetcher = {
+    connect
+  };
 
+  /*
+   * ProxyIP：
+   *
+   * PROXYIP=1.2.3.4
+   *
+   * 或：
+   *
+   * PROXYIP=1.2.3.4,5.6.7.8
+   */
   const proxyIPs =
-    parseProxyIPs(
-      env?.PROXYIP ??
+    parseProxyIP(
+      env?.PROXYIP ||
       CFG.proxyIP
     );
 
-  const proxyIndex = {
-    value: 0
-  };
+  let proxyIndex = 0;
 
   const edStr =
     req.headers.get(
       'sec-websocket-protocol'
     );
 
-  const ed =
+  let ed = null;
+
+  if (
     edStr &&
     edStr.length <=
       CFG.maxED * 4 / 3 + 4
-      ? Uint8Array.fromBase64(
+  ) {
+
+    try {
+      ed =
+        Uint8Array.fromBase64(
           edStr,
           {
             alphabet:
               'base64url'
           }
-        )
-      : null;
+        );
+    } catch {}
+  }
 
   let curW = null;
   let sock = null;
@@ -571,9 +766,12 @@ const ws = async (req, env) => {
   let busy = false;
 
   const uq =
-    mkQ(CFG.upPack);
+    mkQ(
+      CFG.upPack
+    );
 
   const wither = () => {
+
     if (closed) {
       return;
     }
@@ -595,69 +793,210 @@ const ws = async (req, env) => {
     } catch {}
   };
 
-  const toU8 = d =>
-    d instanceof Uint8Array
-      ? d
-      : ArrayBuffer.isView(d)
-        ? new Uint8Array(
-            d.buffer,
-            d.byteOffset,
-            d.byteLength
-          )
-        : new Uint8Array(d);
+  const toU8 = d => {
+
+    if (
+      d instanceof Uint8Array
+    ) {
+      return d;
+    }
+
+    if (
+      ArrayBuffer.isView(d)
+    ) {
+      return new Uint8Array(
+        d.buffer,
+        d.byteOffset,
+        d.byteLength
+      );
+    }
+
+    return new Uint8Array(d);
+  };
 
   const sow = d => {
-    const u = toU8(d);
-    const n = u.byteLength;
 
-    if (!n) {
+    const u =
+      toU8(d);
+
+    if (!u.byteLength) {
       return 1;
     }
 
-    if (uq.sow(u)) {
+    if (
+      uq.sow(u)
+    ) {
       return 1;
     }
 
     wither();
+
     return 0;
   };
 
-  const connectTarget =
-    async (host, port) => {
-      return raceSprout(
-        fetcher,
-        host,
-        port
-      );
+
+  /*
+   * ==================================
+   * 核心：
+   *
+   * 先连接真正目标
+   *
+   * 没有下行数据
+   * ↓
+   * 使用 ProxyIP
+   *
+   * 但是：
+   *
+   * TLS数据保持不变
+   * SNI仍然是原目标域名
+   * ==================================
+   */
+
+  const connectWithProxy =
+    async (
+      targetHost,
+      targetPort,
+      firstData
+    ) => {
+
+      /*
+       * 第一阶段：
+       * 直接连接目标
+       */
+
+      let direct = null;
+
+      try {
+
+        direct =
+          await raceSprout(
+            fetcher,
+            targetHost,
+            targetPort
+          );
+
+        if (
+          firstData?.byteLength
+        ) {
+
+          const writer =
+            direct.writable.getWriter();
+
+          await writer.write(
+            firstData
+          );
+
+          writer.releaseLock();
+        }
+
+        return {
+          socket: direct,
+          proxy: false
+        };
+
+      } catch {
+
+        try {
+          direct?.close();
+        } catch {}
+      }
+
+
+      /*
+       * 第二阶段：
+       * ProxyIP
+       */
+
+      if (
+        !proxyIPs.length
+      ) {
+        throw new Error(
+          'direct connect failed and PROXYIP is empty'
+        );
+      }
+
+      const proxy =
+        proxyIPs[
+          proxyIndex++ %
+          proxyIPs.length
+        ];
+
+      /*
+       * 注意：
+       *
+       * 这里连接的是 ProxyIP
+       *
+       * 但是发送的 firstData
+       * 还是客户端原始TLS数据。
+       *
+       * 因此TLS里面的SNI不会被改掉。
+       */
+
+      const psock =
+        await raceSprout(
+          fetcher,
+          proxy,
+          targetPort
+        );
+
+      if (
+        firstData?.byteLength
+      ) {
+
+        const writer =
+          psock.writable.getWriter();
+
+        await writer.write(
+          firstData
+        );
+
+        writer.releaseLock();
+      }
+
+      return {
+        socket: psock,
+        proxy: true
+      };
     };
+
+
+  /*
+   * ==================================
+   * 读取TCP下行
+   * ==================================
+   */
 
   const pipeRemote =
     async (
       remote,
-      responseHeader,
       fallback
     ) => {
-      let incoming = false;
-      let header =
-        responseHeader;
+
+      const tx =
+        mkDn(server);
+
+      let incoming =
+        false;
+
+      const reader =
+        remote.readable.getReader({
+          mode: 'byob'
+        });
+
+      let buf =
+        new ArrayBuffer(
+          CFG.chunk
+        );
 
       try {
-        const r =
-          remote.readable.getReader({
-            mode: 'byob'
-          });
 
-        let buf =
-          new ArrayBuffer(
-            CFG.chunk
-          );
+        for (;;) {
 
-        try {
-          for (;;) {
-            const {
-              done,
-              value
-            } = await r.read(
+          const {
+            done,
+            value
+          } =
+            await reader.read(
               new Uint8Array(
                 buf,
                 0,
@@ -665,66 +1004,84 @@ const ws = async (req, env) => {
               )
             );
 
-            if (done) {
-              break;
-            }
-
-            if (!value?.byteLength) {
-              continue;
-            }
-
-            incoming = true;
-
-            if (header) {
-              server.send(
-                await new Blob([
-                  header,
-                  value
-                ]).arrayBuffer()
-              );
-
-              header = null;
-            } else {
-              server.send(value);
-            }
-
-            buf =
-              new ArrayBuffer(
-                CFG.chunk
-              );
+          if (done) {
+            break;
           }
-        } finally {
-          try {
-            r.releaseLock();
-          } catch {}
+
+          if (
+            !value?.byteLength
+          ) {
+            continue;
+          }
+
+          /*
+           * 只要收到目标返回数据，
+           * 就说明当前连接成功。
+           */
+          incoming = true;
+
+          tx.send(
+            value.slice()
+          );
+
+          buf =
+            new ArrayBuffer(
+              CFG.chunk
+            );
         }
-      } catch {}
+
+        tx.reap();
+
+      } catch {
+
+      } finally {
+
+        try {
+          tx.reap();
+        } catch {}
+
+        try {
+          reader.releaseLock();
+        } catch {}
+      }
+
+
+      /*
+       * ==================================
+       * 如果直连没有任何下行数据：
+       *
+       * ProxyIP重新连接
+       * ==================================
+       */
 
       if (
         !incoming &&
         fallback &&
-        !closed
+        !closed &&
+        proxyIPs.length
       ) {
+
         try {
-          const fallbackHost =
+
+          const proxy =
             proxyIPs[
-              proxyIndex.value++ %
+              proxyIndex++ %
               proxyIPs.length
             ];
 
-          const retrySock =
+          const retry =
             await raceSprout(
               fetcher,
-              fallbackHost,
+              proxy,
               fallback.port
             );
 
           if (
-            !retrySock ||
+            !retry ||
             closed
           ) {
             try {
-              retrySock?.close();
+              retry?.close();
             } catch {}
 
             return;
@@ -734,46 +1091,241 @@ const ws = async (req, env) => {
             sock?.close();
           } catch {}
 
-          sock = retrySock;
+          sock =
+            retry;
 
-          try {
-            curW?.releaseLock();
-          } catch {}
-
-          curW =
-            sock.writable.getWriter();
-
+          /*
+           * 把之前已经解析出来的
+           * 第一段TLS/HTTP数据重新发送。
+           */
           if (
             fallback.payload?.byteLength
           ) {
-            await curW.write(
+
+            const writer =
+              retry.writable.getWriter();
+
+            await writer.write(
               fallback.payload
             );
+
+            writer.releaseLock();
           }
 
+          /*
+           * ProxyIP连接建立后，
+           * 继续把返回数据发送给客户端。
+           */
           await pipeRemote(
-            sock,
-            responseHeader,
+            retry,
             null
           );
-        } catch {}
+
+        } catch {
+
+          wither();
+        }
       }
     };
 
-  const thresh = async () => {
-    if (busy || closed) {
-      return;
-    }
 
-    busy = true;
+  /*
+   * ==================================
+   * GrainTCP核心循环
+   * ==================================
+   */
 
-    try {
-      for (;;) {
-        if (closed) {
-          break;
-        }
+  const thresh =
+    async () => {
 
-        if (!sock) {
+      if (
+        busy ||
+        closed
+      ) {
+        return;
+      }
+
+      busy = true;
+
+      try {
+
+        for (;;) {
+
+          if (closed) {
+            break;
+          }
+
+          /*
+           * 建立新的TCP连接
+           */
+          if (!sock) {
+
+            const [d] =
+              uq.bundle();
+
+            if (!d) {
+              break;
+            }
+
+            /*
+             * GrainTCP解析
+             */
+            const r =
+              relay(d);
+
+            if (!r) {
+              throw new Error(
+                'invalid GrainTCP header'
+              );
+            }
+
+            /*
+             * GrainTCP响应头
+             */
+            server.send(
+              new Uint8Array([
+                d[0],
+                0
+              ])
+            );
+
+            /*
+             * 目标地址
+             */
+            const host =
+              addr(
+                r.addrType,
+                r.targetAddrBytes
+              );
+
+            /*
+             * 目标端口
+             */
+            const port =
+              r.port;
+
+            /*
+             * 去掉GrainTCP头
+             * 剩下的是原始TCP数据
+             *
+             * 对HTTPS来说，
+             * 这里通常就是TLS ClientHello。
+             */
+            const payload =
+              d.subarray(
+                r.dataOffset
+              );
+
+
+            /*
+             * 先直连目标
+             */
+            let connection =
+              null;
+
+            try {
+
+              connection =
+                await raceSprout(
+                  fetcher,
+                  host,
+                  port
+                );
+
+              sock =
+                connection;
+
+            } catch {
+
+              /*
+               * 直连失败，
+               * 立即使用ProxyIP。
+               */
+              if (
+                !proxyIPs.length
+              ) {
+                throw new Error(
+                  'target connect failed'
+                );
+              }
+
+              const proxy =
+                proxyIPs[
+                  proxyIndex++ %
+                  proxyIPs.length
+                ];
+
+              sock =
+                await raceSprout(
+                  fetcher,
+                  proxy,
+                  port
+                );
+            }
+
+
+            if (!sock) {
+              throw new Error(
+                'socket unavailable'
+              );
+            }
+
+
+            /*
+             * 第一包：
+             *
+             * 直接发送原始payload
+             *
+             * 不修改目标域名。
+             */
+            curW =
+              sock.writable.getWriter();
+
+            if (
+              payload?.byteLength
+            ) {
+
+              await curW.write(
+                payload
+              );
+            }
+
+            curW.releaseLock();
+            curW = null;
+
+
+            /*
+             * 开始TCP → WebSocket
+             */
+            pipeRemote(
+              sock,
+              {
+                host,
+                port,
+                payload
+              }
+            ).finally(() => {
+
+              if (!closed) {
+
+                try {
+                  sock?.close();
+                } catch {}
+
+                sock = null;
+              }
+
+            });
+
+            continue;
+          }
+
+
+          /*
+           * 已经建立连接：
+           * 后续客户端数据直接写入TCP。
+           */
+
           const [d] =
             uq.bundle();
 
@@ -781,135 +1333,63 @@ const ws = async (req, env) => {
             break;
           }
 
-          const r =
-            relay(d);
-
-          if (!r) {
-            throw new Error(
-              'invalid GrainTCP header'
-            );
-          }
-
-          server.send(
-            new Uint8Array([
-              d[0],
-              0
-            ])
-          );
-
-          const host =
-            addr(
-              r.addrType,
-              r.targetAddrBytes
-            );
-
-          const port = r.port;
-
-          const payload =
-            d.subarray(
-              r.dataOffset
-            );
-
-          try {
-            sock =
-              await connectTarget(
-                host,
-                port
-              );
-          } catch (err) {
-            if (!proxyIPs.length) {
-              throw err;
-            }
-
-            const fallbackHost =
-              proxyIPs[
-                proxyIndex.value++ %
-                proxyIPs.length
-              ];
-
-            sock =
-              await raceSprout(
-                fetcher,
-                fallbackHost,
-                port
-              );
-          }
-
-          if (!sock) {
-            throw new Error(
-              'socket unavailable'
-            );
-          }
-
           curW =
             sock.writable.getWriter();
 
-          const [first] =
-            uq.bundle(payload);
+          await curW.write(d);
 
-          if (first?.byteLength) {
-            await curW.write(first);
-          }
-
-          pipeRemote(
-            sock,
-            null,
-            {
-              port,
-              payload:
-                new Uint8Array(0)
-            }
-          ).finally(() => {
-            if (!closed) {
-              try {
-                curW?.releaseLock();
-              } catch {}
-
-              curW = null;
-
-              try {
-                sock?.close();
-              } catch {}
-
-              sock = null;
-            }
-          });
-
-          continue;
+          curW.releaseLock();
+          curW = null;
         }
 
-        const [d] =
-          uq.bundle();
+      } catch {
 
-        if (!d) {
-          break;
+        wither();
+
+      } finally {
+
+        busy = false;
+
+        if (
+          !uq.empty &&
+          !closed
+        ) {
+          thresh();
         }
-
-        await curW.write(d);
       }
-    } catch {
-      wither();
-    } finally {
-      busy = false;
+    };
 
-      !uq.empty &&
-        !closed &&
-        thresh();
-    }
-  };
 
-  if (ed && sow(ed)) {
+  /*
+   * 0-RTT Early Data
+   */
+  if (
+    ed &&
+    sow(ed)
+  ) {
     thresh();
   }
 
+
+  /*
+   * WebSocket数据
+   */
   server.addEventListener(
     'message',
     e => {
-      closed ||
-        (sow(e.data) &&
-          thresh());
+
+      if (closed) {
+        return;
+      }
+
+      if (
+        sow(e.data)
+      ) {
+        thresh();
+      }
     }
   );
+
 
   server.addEventListener(
     'close',
@@ -921,12 +1401,16 @@ const ws = async (req, env) => {
     () => wither()
   );
 
-  return new Response(null, {
-    status: 101,
-    webSocket: client,
-    headers: {
-      'Sec-WebSocket-Extensions':
-        ''
+
+  return new Response(
+    null,
+    {
+      status: 101,
+      webSocket: client,
+      headers: {
+        'Sec-WebSocket-Extensions':
+          ''
+      }
     }
-  });
+  );
 };
