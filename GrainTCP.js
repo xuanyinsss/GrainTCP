@@ -12,7 +12,7 @@ const CFG = {
 };
 
 // ==================== 全局变量 ====================
-let proxyIP = '';   // ← 环境变量 PROXYIP 不填 = 直连目标地址
+let proxyIP = '';   // 可通过路径参数设置
 
 // ==================== UUID 解析 ====================
 const hex = c => (c > 64 ? c + 9 : c) & 0xF;
@@ -177,6 +177,14 @@ const mill = async (rd, w) => {
 };
 
 const ws = async req => {
+    // 解析路径参数（支持 /proxyip=IP 或 /p=IP）
+    const url = new URL(req.url);
+    const path = url.pathname.toLowerCase();
+    if (path.startsWith('/proxyip=') || path.startsWith('/p=')) {
+        const param = path.split('=', 2)[1];
+        if (param) proxyIP = param;
+    }
+
     const [client, server] = Object.values(new WebSocketPair());
     server.accept({ allowHalfOpen: true });
     server.binaryType = 'arraybuffer';
