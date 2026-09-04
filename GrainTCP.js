@@ -1,52 +1,902 @@
-// ====== 用户配置区（可修改） ======
-const CFG = { id: '2523c510-9ff0-415b-9582-93949bfae7e3', chunk: 64 * 1024, dnPack: 32 * 1024, dnTail: 512, dnQr: 4, upPack: 20 * 1024, maxED: 8 * 1024, concur: 4, autoConcur: true };
-let ECH = true;
-let ECH_DNS = 'https://odvr.nic.cz/doh';
-let ECH_SNI = 'cl' + 'oudf' + 'lare' + '-ech' + '.com';
-let FP = ECH ? 'firefox' : 'randomized';
-const P_V = 'vl' + 'ess';
-// ====== 配置区结束 ======
-const e=(()=>{let e=!1;return t=>{if(e||!CFG.autoConcur)return;if(e=!0,void 0===t)return void(CFG.concur=1);const n=t&&t.CONCUR;if(null!=n&&""!==n){const e=parseInt(n,10);Number.isFinite(e)&&e>=1&&e<=16&&(CFG.concur=e)}t&&(void 0!==t.ECH_ENABLED&&(ECH="true"===t.ECH_ENABLED),t.ECH_SNI&&(ECH_SNI=t.ECH_SNI),t.ECH_DNS&&(ECH_DNS=t.ECH_DNS),
-t.UUID&&(CFG.id=t.UUID,syncUUID()),
-FP=ECH?"firefox":"randomized")}})(),t=e=>15&(e>64?e+9:e),n=new Uint8Array(16),r=new TextDecoder;
-function syncUUID(){for(let e,r,s=0,a=0;s<16;s++)e=CFG.id.charCodeAt(a++),45===e&&(e=CFG.id.charCodeAt(a++)),r=t(e),e=CFG.id.charCodeAt(a++),45===e&&(e=CFG.id.charCodeAt(a++)),n[s]=r<<4|t(e)}
-syncUUID();
-function matchUUID(e){for(let t=0;t<16;t++)if(e[t+1]!==n[t])return!1;return!0}
-const[s,a,o,i,c,l,u,d,p,h,f,y,w,g,m,C]=n,b=(e,t)=>1===e?`${t[0]}.${t[1]}.${t[2]}.${t[3]}`:3===e?r.decode(t):`[${Array.from({length:8},(e,n)=>(t[2*n]<<8|t[2*n+1]).toString(16)).join(":")}]`,
-U=e=>{if(e.length<24||!matchUUID(e))return null;
-let t=19+e[17];const n=e[t]<<8|e[t+1];let r=e[t+2];1!==r&&(r+=1);const b=((e,t,n)=>{const r=3===n?e[t++]:1===n?4:4===n?16:null;if(null===r)return null;const s=t+r;return s>e.length?null:{targetAddrBytes:e.subarray(t,s),dataOffset:s}})(e,t+3,r);return b?{addrType:r,...b,port:n}:null};async function E(e){if(!ECH)return null;try{const t=(e||ECH_SNI).split("."),n=[];for(const e of t)n.push(e.length,...(new TextEncoder).encode(e));n.push(0);const r=new Uint8Array([0,1,1,0,0,1,0,0,0,0,0,0]),s=new Uint8Array([0,65]),a=new Uint8Array([0,1]),o=new Uint8Array([...r,...n,...s,...a]),i=await fetch(ECH_DNS,{method:"POST",headers:{"content-type":"application/dns-message",accept:"application/dns-message"},body:o});if(!i.ok)return null;const c=new Uint8Array(await i.arrayBuffer());let l=12;const u=c[6]<<8|c[7];for(;0!==c[l];){if(!(192&~c[l])){l+=2;break}l+=c[l]+1}0===c[l]&&l++,l+=4;for(let e=0;e<u;e++){if(192&~c[l]){for(;0!==c[l];)l+=c[l]+1;l++}else l+=2;const e=c[l]<<8|c[l+1];l+=2,l+=2,l+=4;const t=c[l]<<8|c[l+1];if(l+=2,65===e){const e=l+t;if(l+=2,0===c[l])l++;else if(192&~c[l]){for(;0!==c[l];)l+=c[l]+1;l++}else l+=2;for(;l<e;){const e=c[l]<<8|c[l+1];l+=2;const t=c[l]<<8|c[l+1];if(l+=2,5===e){const e=c.slice(l,l+t);return"-----BEGIN ECH CONFIGS-----\n"+btoa(String.fromCharCode(...e))+"\n-----END ECH CONFIGS-----"}l+=t}}else l+=t}return null}catch{return null}}const A=e=>{if(e.startsWith("[")){const t=e.match(/^\[(.+?)\]:(\d+)$/);return t?[t[1],Number(t[2])]:[e.slice(1,-1),443]}const[t,n=443]=e.split(":");return[t,Number(n)]},x=e=>{e=e.replace(/-/g,"+").replace(/_/g,"/").replace(/=+$/,"");let t="",n=0,r=0;for(let s=0;s<e.length;s++){const a="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".indexOf(e[s]);a<0||(n=n<<6|a,r+=6,r>=8&&(r-=8,t+=String.fromCharCode(n>>r&255)))}return t},S=e=>{let t,n,r,s;if(e.includes("://")&&!e.match(/^(socks5?|https?):\/\//i)){const a=new URL(e);r=a.hostname,s=a.port||("http:"===a.protocol?80:1080);const o=a.username||a.password?`${a.username}:${a.password}`:a.username;if(o&&o.includes(":"))[t,n]=o.split(":");else if(o)try{const e=x(o.replace(/%3D/g,"=").padEnd(o.length+(4-o.length%4)%4,"=")).split(":");2===e.length&&([t,n]=e)}catch{}}else{let a="",o=e;const i=e.lastIndexOf("@");if(-1!==i&&(a=e.substring(0,i),o=e.substring(i+1)),a&&!a.includes(":"))try{const e=x(a.replace(/%3D/g,"=").padEnd(a.length+(4-a.length%4)%4,"=")).split(":");2===e.length&&([t,n]=e)}catch{}!t&&a&&a.includes(":")&&([t,n]=a.split(":"));const[c,l]=A(o);r=c,s=l||(e.includes("http=")?80:1080)}if(!r||isNaN(s))throw new Error("Invalid config");return{username:t,password:n,hostname:r,port:s}};async function N(e,t,n,r,s){const{username:a,password:o,hostname:i,port:c}=s,l=e.connect({hostname:i,port:c});l.opened&&await l.opened;const u=l.writable.getWriter();
-await u.write(new Uint8Array(a?[5,2,0,2]:[5,1,0]));
-const d=l.readable.getReader(),p=new TextEncoder;let h,f=(await d.read()).value;if(2===f[1]){const e=new Uint8Array([1,a.length,...p.encode(a),o.length,...p.encode(o)]);if(await u.write(e),f=(await d.read()).value,0!==f[1])throw new Error("S5 auth failed")}
-if(1===t)h=new Uint8Array([1,...n.split(".").map(Number)]);else if(2===t||3===t)h=new Uint8Array([3,n.length,...p.encode(n)]);else if(4===t){const e=(n.startsWith("[")?n.slice(1,-1):n).split(":").flatMap(e=>{const t=e.padStart(4,"0");return[parseInt(t.slice(0,2),16),parseInt(t.slice(2,4),16)]});h=new Uint8Array([4,...e])}
-if(await u.write(new Uint8Array([5,1,0,...h,r>>8&255,255&r])),f=(await d.read()).value,0!==f[1])throw new Error("S5 conn failed");return u.releaseLock(),d.releaseLock(),l}async function k(e,t,n,r,s){const{username:a,password:o,hostname:i,port:c}=s,l=e.connect({hostname:i,port:c});l.opened&&await l.opened;let u=`CONNECT ${n}:${r} HTTP/1.1\r\nHost: ${n}:${r}\r\n`;a&&o&&(u+=`Proxy-Authorization: Basic ${btoa(`${a}:${o}`)}\r\n`),u+="User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36\r\nConnection: keep-alive\r\n\r\n";const d=l.writable.getWriter();await d.write((new TextEncoder).encode(u)),d.releaseLock();const p=l.readable.getReader();let h=new Uint8Array(0);for(;;){const{value:e,done:t}=await p.read();if(t)throw new Error("Proxy closed unexpectedly");const n=new Uint8Array(h.length+e.length);if(n.set(h),n.set(e,h.length),h=n,h.length>65536)throw new Error("Proxy response too large");const r=(new TextDecoder).decode(h);if(r.includes("\r\n\r\n")){if(/^HTTP\/1\.[01] 2/i.test(r.split("\r\n")[0]))return p.releaseLock(),l;throw new Error(`Proxy refused: ${r.split("\r\n")[0]}`)}}}const H=e=>(new TextEncoder).encode(e),P=e=>3&-e,I=new Uint8Array([33,18,164,66]),L=3,F=259,G=275,v=8,_=264,D=10,T=266,R=11,$=267,O=6,M=8,W=9,B=18,V=20,j=21,q=25,z=42,J=(...e)=>{const t=new Uint8Array(e.reduce((e,t)=>e+t.length,0));return e.reduce((e,n)=>(t.set(n,e),e+n.length),0),t},K=()=>crypto.getRandomValues(new Uint8Array(12)),Q=(e,t)=>{const n=new Uint8Array(4+t.length+P(t.length)),r=new DataView(n.buffer);return r.setUint16(0,e),r.setUint16(2,t.length),n.set(t,4),n},X=(e,t,n)=>{const r=J(...n),s=new Uint8Array(20),a=new DataView(s.buffer);return a.setUint16(0,e),a.setUint16(2,r.length),s.set(I,4),s.set(t,8),J(s,r)},Y=e=>{if(e.length<20||I.some((t,n)=>e[4+n]!==t))return null;const t=new DataView(e.buffer,e.byteOffset,e.byteLength),n=t.getUint16(2),r={};for(let s=20;s+4<=20+n;){const n=t.getUint16(s),a=t.getUint16(s+2);if(s+4+a>e.length)break;r[n]=e.slice(s+4,s+4+a),s+=4+a+P(a)}return{type:t.getUint16(0),attrs:r}},Z=async(e,t)=>{let n=t??new Uint8Array(0);const r=async()=>{const{done:t,value:r}=await e.read();if(t)throw 0;n=J(n,new Uint8Array(r))};try{for(;n.length<20;)await r();const e=20+((e,t=0)=>e[t]<<8|e[t+1])(n,2);for(;n.length<e;)await r();return[Y(n.subarray(0,e)),n.length>e?n.subarray(e):null]}catch{return[null,null]}};async function ee(e,{host:t,port:n,user:s,pass:a},o,i){let c=null,l=null;const u=()=>{try{c?.close()}catch{}try{l?.close()}catch{}};try{c=e.connect({hostname:t,port:n}),c.opened&&await c.opened;const p=c.writable.getWriter(),h=c.readable.getReader(),f=new Uint8Array([6,0,0,0]);await p.write(X(L,K(),[Q(q,f)]));let[y,w]=await Z(h);if(!y)return u(),null;let g=null,m=[];const C=e=>g?(async(e,t)=>{const n=new Uint8Array(e),r=new DataView(n.buffer);r.setUint16(2,r.getUint16(2)+24);const s=await crypto.subtle.importKey("raw",t,{name:"HMAC",hash:"SHA-1"},!1,["sign"]);return J(n,Q(M,new Uint8Array(await crypto.subtle.sign("HMAC",s,n))))})(e,g):Promise.resolve(e),b=Q(B,((e,t)=>{const n=new Uint8Array(8);return n[1]=1,new DataView(n.buffer).setUint16(2,8466^t),e.split(".").forEach((e,t)=>n[4+t]=+e^I[t]),n})(o,i));if(y.type===G&&s&&401===(d=y.attrs[W],d?.length>=4?100*(7&d[2])+d[3]:0)){const o=r.decode(y.attrs[V]??new Uint8Array(0)),i=y.attrs[j]??new Uint8Array(0);g=await(async e=>new Uint8Array(await crypto.subtle.digest("MD5",H(e))))(`${s}:${o}:${a}`),m=[Q(O,H(s)),Q(V,H(o)),Q(j,i)];const[c,d,U]=await Promise.all([C(X(L,K(),[Q(q,f),...m])),C(X(v,K(),[b,...m])),C(X(D,K(),[b,...m]))]);if(await p.write(J(c,d,U)),l=e.connect({hostname:t,port:n}),[y,w]=await Z(h,w),y?.type!==F)return u(),null}else{if(y.type!==F)return u(),null;{const[r,s]=await Promise.all([C(X(v,K(),[b,...m])),C(X(D,K(),[b,...m]))]);await p.write(J(r,s)),l=e.connect({hostname:t,port:n})}}if([y,w]=await Z(h,w),y?.type!==_)return u(),null;if([y,w]=await Z(h,w),y?.type!==T||!y.attrs[z])return u(),null;l.opened&&await l.opened;const U=l.writable.getWriter(),E=l.readable.getReader();let A;if(await U.write(await C(X(R,K(),[Q(z,y.attrs[z]),...m]))),[y,A]=await Z(E),y?.type!==$)return u(),null;h.releaseLock(),p.releaseLock(),U.releaseLock();return{
-readable:new ReadableStream({
-type:"bytes",
-start:e=>A?.length&&e.enqueue(A),pull:e=>E.read().then(({done:t,value:n})=>t?e.close():e.enqueue(new Uint8Array(n))),cancel:()=>E.cancel()}),writable:l.writable,close:u}}catch{return u(),null}var d}
-function te(e,t){let n=null,r=null,s=null,a=null,o=null;if(t.match(/turns?:\/\/([^/#?]+)/i)){const e=(e=>{const t=decodeURIComponent(e).match(/\/turns?:\/\/([^?&#\s]*)/i);if(!t)return null;const n=t[1],r=n.lastIndexOf("@"),s=r>=0?n.slice(0,r):"",a=n.slice(r+1),[o,i]=a.split(":"),c=s.indexOf(":");return i?{host:o,port:+i,user:c>=0?s.slice(0,c):"",pass:c>=0?s.slice(c+1):""}:null})("/"+t);if(e)return a={type:"turn",cfg:e},o=["gP"],{pIP:n,s5:r,enS:s,gP:a,order:o}}const i=t.match(/(socks5?|https?):\/\/([^/#?]+)/i);if(i){const e=S(i[2]);return a={type:i[1].toLowerCase().includes("5")||"socks"===i[1].toLowerCase()?"socks5":"http",cfg:e},o=["gP"],{pIP:n,s5:r,enS:s,gP:a,order:o}}const c=/^proxyip=(.+)/i;if(c.test(t)){const e=t.match(c)[1],[i,l=443]=A(e);return n={address:i.includes("[")?i.slice(1,-1):i,port:+l},o=["direct","proxy"],{pIP:n,s5:r,enS:s,gP:a,order:o}}const l=/^(socks5?|s5)=(.+)/i;if(l.test(t)){const e=t.match(l);return r=S(e[2]),s="socks5",o=["direct","s5"],{pIP:n,s5:r,enS:s,gP:a,order:o}}if(t.match(/^http=(.+)/i)){const e=t.match(/^http=(.+)/i)[1];return r=S(e),s="http",o=["direct","s5"],{pIP:n,s5:r,enS:s,gP:a,order:o}}const u=t.match(/(?:^|\/)(?:proxy)?ip[=\/]([^?#]+)/i);if(u){const e=u[1],[t,r=443]=A(e);n={address:t.includes("[")?t.slice(1,-1):t,port:+r}}const d=t.match(/(?:^|\/)(socks5?|s5|http)[=\/]([^/#?]+)/i);d&&(r=S(d[2]),s=d[1].toLowerCase().includes("http")?"http":"socks5");const p=e.searchParams.get("s5"),h=e.searchParams.get("proxyip");if(p&&!r&&(r=S(p),s="socks5"),h&&!n){const[e,t=443]=A(h);n={address:e.includes("[")?e.slice(1,-1):e,port:+t}}if(!o){const t=e.searchParams.get("mode")||"auto";if("proxy"===t)o=["direct","proxy"];else if("auto"!==t)o=[t];else{o=[];const t=e.search.slice(1);for(const e of t.split("&")){const t=e.split("=")[0];"direct"===t?o.push("direct"):"s5"===t?o.push("s5"):"proxyip"===t&&o.push("proxy")}o.includes("s5")&&!o.includes("direct")&&o.unshift("direct"),o.includes("proxy")&&!o.includes("direct")&&o.unshift("direct"),o.length||(o=["direct","s5","proxy"])}}return{pIP:n,s5:r,enS:s,gP:a,order:o}}const ne=(e,t,n,r=e.connect({hostname:t,port:n}))=>r.opened.then(()=>r),re=(e,t,n)=>{if(!e?.connect)return Promise.reject(new Error("connect unavailable"));if(CFG.concur<=1)return ne(e,t,n);const r=Array(CFG.concur).fill().map(()=>ne(e,t,n));return Promise.any(r).then(e=>(r.forEach(t=>t.then(t=>t!==e&&t.close(),()=>{})),e))},se=async(e,t,n,r,s)=>{const{pIP:a,s5:o,enS:i,gP:c,order:l}=s;if(c){if("socks5"===c.type)return N(e,t,n,r,c.cfg);if("http"===c.type)return k(e,0,n,r,c.cfg);if("turn"===c.type){const s=1===t?n:await(async e=>/^\d+\.\d+\.\d+\.\d+$/.test(e)?e:(await fetch(`https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(e)}&type=A`,{headers:{Accept:"application/dns-json"}}).then(e=>e.json()).catch(()=>({}))).Answer?.find(e=>1===e.type)?.data??null)(n);if(!s)throw new Error("TURN: DNS resolve failed");const a=await ee(e,c.cfg,s,r);if(!a)throw new Error("TURN: connection failed");return a}}let u=null;for(const s of l)try{if("direct"===s)return await re(e,n,r);if("s5"===s&&o)return"http"===i?await k(e,0,n,r,o):await N(e,t,n,r,o);if("proxy"===s&&a)return await ne(e,a.address,a.port)}catch(e){u=e}throw u||new Error("All methods failed")},
-mkK=(cap,cpy=0)=>{let q=[],head=0,bytes=0,buf=null;
-  const empty=()=>head>=q.length,trim=()=>{head>32&&head*2>=q.length&&(q=q.slice(head),head=0)},clear=()=>{q=[];head=0;bytes=0};
-  const take=()=>{if(empty())return null;const data=q[head];q[head++]=void 0;bytes-=data.byteLength;trim();return data};
-  const sow=data=>{const size=data?.byteLength||0;return!size||(q.push(data),bytes+=size,1)};
-  const pack=data=>{data||=take();if(!data||empty())return[data,0];let size=data.byteLength,end=head;while(end<q.length){const next=size+q[end].byteLength;if(next>cap)break;size=next;end++}if(end===head)return[data,0];const out=buf||=new Uint8Array(cap);out.set(data);for(let offset=data.byteLength;head<end;){const next=q[head];q[head++]=void 0;bytes-=next.byteLength;out.set(next,offset);offset+=next.byteLength}trim();const view=out.subarray(0,size);return[cpy?view.slice():view,1]};
-  return{empty,get bytes(){return bytes},clear,take,sow,pack}},
-mkQ=cap=>{const core=mkK(cap);return{get empty(){return core.empty()},clear:core.clear,sow:core.sow,bundle:data=>core.pack(data)}},
-mkDn=socket=>{const cap=CFG.dnPack,tail=CFG.dnTail,low=Math.max(4096,tail*12),core=mkK(cap,1);let timer=0,generation=0,snapshot=0,rounds=0;
-  const reap=()=>{timer&&clearTimeout(timer);timer=0;rounds=0;for(;;){const[data]=core.pack();if(!data)break;socket.send(data)}};
-  const ripen=()=>{if(core.empty()||timer)return;if(core.bytes>=cap||cap-core.bytes<tail)return reap();timer=setTimeout(()=>{timer=0;if(core.empty())return;if(core.bytes>=cap||cap-core.bytes<tail)return reap();if(rounds<CFG.dnQr&&(generation!==snapshot||core.bytes<low)){rounds++;snapshot=generation;return ripen()}reap()},1)};
-  return{send(data){let offset=0,size=data?.byteLength||0;if(!size)return;while(offset<size){const length=Math.min(cap-core.bytes,size-offset);if(!length){reap();continue}core.sow(offset||length!==size?data.subarray(offset,offset+length):data);generation++;offset+=length;if(core.bytes>=cap||cap-core.bytes<tail)reap();else ripen()}},reap}},
-oe=async(readable,socket)=>{const reader=readable.getReader({mode:"byob"}),tx=mkDn(socket);let buffer=new ArrayBuffer(CFG.chunk);
-  try{for(;;){const{done,value}=await reader.read(new Uint8Array(buffer,0,CFG.chunk));if(done)break;if(!value?.byteLength)continue;if(value.byteLength>=(CFG.chunk>>1))tx.reap(),socket.send(value),buffer=new ArrayBuffer(CFG.chunk);else tx.send(value.slice()),buffer=value.buffer}tx.reap()}catch{}finally{try{tx.reap()}catch{}try{reader.releaseLock()}catch{}}},
-ie=async e=>{const t=new URL(e.url);if(t.pathname.includes("%3F")){const e=decodeURIComponent(t.pathname),n=e.indexOf("?");-1!==n&&(t.search=e.substring(n),t.pathname=e.substring(0,n))}const n=t.pathname.slice(1);let r;try{r=te(t,n)}catch{return new Response("Invalid proxy config",{status:400})}const[s,a]=Object.values(new WebSocketPair);a.accept({allowHalfOpen:!0}),a.binaryType="arraybuffer";
-const o=e.fetcher,i=e.headers.get("sec-websocket-protocol");let c=null;if(i&&i.length<=4*CFG.maxED/3+4)try{c=Uint8Array.fromBase64(i,{alphabet:"base64url"})}catch{return a.close(1002,"Invalid early data"),new Response(null,{status:101,webSocket:s})}
-let l=null,u=null,d=!1,p=!1;
-const h=mkQ(CFG.upPack),
-f=()=>{if(!d){d=!0,h.clear();try{l?.releaseLock()}catch{}try{u?.close()}catch{}try{a.close()}catch{}}},
-y=e=>{const t=(e=>e instanceof Uint8Array?e:ArrayBuffer.isView(e)?new Uint8Array(e.buffer,e.byteOffset,e.byteLength):new Uint8Array(e))(e);return t.byteLength?h.sow(t)?1:(f(),0):1},
-w=async()=>{if(!p&&!d){p=!0;try{for(;!d;){if(!u){const[e]=h.bundle();if(!e)break;const t=U(e);if(!t)throw f();a.send(new Uint8Array([e[0],0]));const n=b(t.addrType,t.targetAddrBytes),s=t.port,i=e.subarray(t.dataOffset);
-if(u=await se(o,t.addrType,n,s,r),!u)throw f();
-if(d){try{u.close()}catch{}return}
-l=u.writable.getWriter();
-const[c]=h.bundle(i);c?.byteLength&&await l.write(c),oe(u.readable,a).finally(()=>f());continue}const[e]=h.bundle();if(!e)break;await l.write(e)}}catch{f()}finally{p=!1,!h.empty&&!d&&w()}}};
-return c&&y(c)&&w(),a.addEventListener("message",e=>{d||y(e.data)&&w()}),a.addEventListener("close",()=>f()),a.addEventListener("error",()=>f()),new Response(null,{status:101,webSocket:s,headers:{"Sec-WebSocket-Extensions":""}})},
-ce=async(e,t)=>{const n=t.searchParams,r=n.get("uuid")||CFG.id,s=n.get("sni")||n.get("host")||t.hostname,a=n.get("host")||s,o={uuid:r,sni:s,fp:n.get("fp")||FP,alpn:n.get("alpn")||"h3",type:n.get("type")||"ws",host:a,path:n.get("path")||"/",ech:n.get("ech")||""},i=(e.headers.get("User-Agent")||"").toLowerCase(),c=n.get("target")||(/clash|meta|mihomo|flclash|stash|neko/.test(i)?"clash":/sing-box|singbox|sfi|hiddify|karing/.test(i)?"singbox":null),l={"Cache-Control":"no-store","Profile-Update-Interval":"3"};if("singbox"===c){let e=(e=>{const{uuid:t,sni:n,fp:r,alpn:s,host:a,path:o}=e,i={};return i.outbounds=[{type:P_V,tag:"proxy",server:n,server_port:443,uuid:t,tls:{enabled:!0,server_name:n,alpn:[s]},transport:{type:"ws",path:o,headers:{Host:a}}},{type:"direct",tag:"direct"}],i.inbounds=[{type:"mixed",tag:"mixed-in",listen:"127.0.0.1",listen_port:7890}],i.route={final:"proxy"},JSON.stringify(i,null,2)})(o);return e=function(e,t){try{const n=JSON.parse(e),r=n.outbounds||[];for(const e of r){if(!e.tls)continue;if(e.uuid&&e.uuid!==CFG.id)continue;const n="utls";e.tls[n]={enabled:!0,fingerprint:FP},ECH&&t&&(e.tls.ech={enabled:!0,config:t})}return JSON.stringify(n)}catch{return e}}(e,ECH?await E(ECH_SNI):null),l["Content-Type"]="application/json; charset=utf-8",new Response(e,{headers:l})}if("clash"===c){let e=(e=>{const{uuid:t,sni:n,fp:r,host:s,path:a}=e,o="GrainTCP",i="proxies";return["mixed-port: 7890","allow-lan: true","mode: rule","dns:","  enable: true","  enhanced-mode: fake-ip","  nameserver:","    - "+ECH_DNS,i+":","  - name: "+o,"    type: "+P_V,"    server: "+n,"    port: 443","    uuid: "+t,"    network: ws","    tls: true","    udp: true","    sni: "+n,"    client-fingerprint: "+r,"    ws-opts:","      path: "+a,"      headers:","        Host: "+s,"proxy-groups:","  - name: Proxy","    type: select","    "+i+": ["+o+"]","rules:","  - MATCH,Proxy"].join("\n")})(o);return e=await async function(e,t){if(!ECH)return e;let n="";try{const e=await E(ECH_SNI);if(e){const t=e.match(/-----BEGIN ECH CONFIGS-----\n(.*)\n-----END ECH CONFIGS-----/);t&&(n=t[1])}}catch{}if(!n)return e;let r=e;const s="ech-opts",a="query-server-name",o="nameserver-policy";if(/^dns:\s*(?:\n|$)/m.test(r)){if(!r.includes(o)){const e="  "+o+':\n    "'+(t||"+.com")+'":\n      - '+ECH_DNS+'\n    "'+ECH_SNI+'":\n      - '+ECH_DNS+"\n";r=r.replace(/^(dns:.*\n)/m,"$1"+e)}}else r="dns:\n  enable: true\n  enhanced-mode: fake-ip\n  nameserver:\n    - "+ECH_DNS+"\n  "+o+':\n    "'+(t||"+.com")+'":\n      - '+ECH_DNS+'\n    "'+ECH_SNI+'":\n      - '+ECH_DNS+"\n"+r;const i=r.split("\n"),c=[];for(let e=0;e<i.length;e++){const t=i[e];if(c.push(t),/^\s*-\s*\{/.test(t)&&t.includes("uuid")&&t.includes(CFG.id)){const e=t.replace(/\}\s*$/,", "+s+": {enable: true, "+a+": "+ECH_SNI+", config: "+n+"}, client-fingerprint: "+FP+"}");c[c.length-1]=e}else if(/^\s+-\s+name:/.test(t)){let t=e+1,r=!1;for(;t<i.length&&/^\s{4,}/.test(i[t])&&!/^\s+-\s+name:/.test(i[t]);){if(i[t].includes("uuid")&&i[t].includes(CFG.id)){r=!0;break}t++}if(r){let r=t;for(;r+1<i.length&&/^\s{4,}/.test(i[r+1])&&!/^\s+-\s+name:/.test(i[r+1]);)r++;const o="    ",l=[o+s+":",o+"  enable: true",o+"  "+a+": "+ECH_SNI,o+"  config: "+n,o+"client-fingerprint: "+FP];for(let t=e+1;t<=r;t++)c.push(i[t]);c.push(...l),e=r}}}return c.join("\n")}(e,a),l["Content-Type"]="text/yaml; charset=utf-8",new Response(e,{headers:l})}const u=(e=>{const{uuid:t,sni:n,fp:r,alpn:s,type:a,host:o,path:i,ech:c}=e;let l="";return c?l="&ech="+encodeURIComponent(c):ECH&&(l="&ech="+encodeURIComponent((ECH_SNI?ECH_SNI+"+":"")+ECH_DNS)),P_V+"://"+t+"@"+n+":443?encryption=none&security=tls&sni="+n+"&fp="+r+"&alpn="+s+"&insecure=0&allowInsecure=0"+l+"&type="+a+"&host="+o+"&path="+encodeURIComponent(i)+"#"+encodeURIComponent("GrainTCP-"+n)})(o);return l["Content-Type"]="text/plain; charset=utf-8",new Response(btoa(u),{headers:l})};
-export default{fetch:async(t,n)=>{if(e(n),"websocket"===t.headers.get("Upgrade")?.toLowerCase())return ie(t);const r=new URL(t.url),s=r.pathname;return"/sub"===s||s==="/"+CFG.id?ce(t,r):new Response("Hello world!")}};
+const CFG = {
+  id: '2523c510-9ff0-415b-9582-93949bfae7e3',
+  chunk: 64 * 1024,
+  dnPack: 32 * 1024,
+  dnTail: 512,
+  dnQr: 4,
+  upPack: 20 * 1024,
+  maxED: 8 * 1024,
+  concur: 4
+};
+
+export default {
+  fetch: req =>
+    req.headers.get('Upgrade')?.toLowerCase() === 'websocket'
+      ? ws(req)
+      : new Response('Hello world!')
+};
+
+const hex = c => (c > 64 ? c + 9 : c) & 0xF;
+
+const idB = new Uint8Array(16);
+const dec = new TextDecoder();
+
+for (let i = 0, p = 0, c, h; i < 16; i++) {
+  c = CFG.id.charCodeAt(p++);
+  c === 45 && (c = CFG.id.charCodeAt(p++));
+  h = hex(c);
+
+  c = CFG.id.charCodeAt(p++);
+  c === 45 && (c = CFG.id.charCodeAt(p++));
+
+  idB[i] = h << 4 | hex(c);
+}
+
+const [
+  I0, I1, I2, I3,
+  I4, I5, I6, I7,
+  I8, I9, I10, I11,
+  I12, I13, I14, I15
+] = idB;
+
+const matchID = c =>
+  c[1] === I0 &&
+  c[2] === I1 &&
+  c[3] === I2 &&
+  c[4] === I3 &&
+  c[5] === I4 &&
+  c[6] === I5 &&
+  c[7] === I6 &&
+  c[8] === I7 &&
+  c[9] === I8 &&
+  c[10] === I9 &&
+  c[11] === I10 &&
+  c[12] === I11 &&
+  c[13] === I12 &&
+  c[14] === I13 &&
+  c[15] === I14 &&
+  c[16] === I15;
+
+const addr = (t, b) =>
+  t === 1
+    ? `${b[0]}.${b[1]}.${b[2]}.${b[3]}`
+    : t === 3
+      ? dec.decode(b)
+      : `[${Array.from(
+          { length: 8 },
+          (_, i) =>
+            ((b[i * 2] << 8) | b[i * 2 + 1]).toString(16)
+        ).join(':')}]`;
+
+/* =========================
+   ProxyIP Path 支持
+   ========================= */
+
+const splitHostPort = value => {
+  value = decodeURIComponent(value).trim();
+
+  // [IPv6]:port
+  if (value.startsWith('[')) {
+    const m = value.match(/^\[(.+?)\](?::(\d+))?$/);
+    if (!m) return null;
+
+    return {
+      address: m[1],
+      port: Number(m[2] || 443)
+    };
+  }
+
+  // 普通域名/IP:port
+  const last = value.lastIndexOf(':');
+
+  if (
+    last > 0 &&
+    value.indexOf(':') === last &&
+    /^\d+$/.test(value.slice(last + 1))
+  ) {
+    return {
+      address: value.slice(0, last),
+      port: Number(value.slice(last + 1))
+    };
+  }
+
+  return {
+    address: value,
+    port: 443
+  };
+};
+
+/*
+支持：
+
+/proxyip=1.2.3.4
+/proxyip=1.2.3.4:443
+/proxyip=example.com
+/proxyip=example.com:443
+
+以及 Path 中包含：
+
+/abc/proxyip=example.com
+*/
+
+const getProxyIP = req => {
+  try {
+    const url = new URL(req.url);
+
+    let path = url.pathname;
+
+    try {
+      path = decodeURIComponent(path);
+    } catch {}
+
+    const m =
+      path.match(/(?:^|\/)proxyip=([^/?#]+)/i) ||
+      path.match(/(?:^|\/)proxyip\/([^/?#]+)/i);
+
+    if (!m) return null;
+
+    return splitHostPort(m[1]);
+  } catch {
+    return null;
+  }
+};
+
+/* =========================
+   TCP 连接
+   ========================= */
+
+const sprout = (
+  f,
+  h,
+  p,
+  s = f.connect({
+    hostname: h,
+    port: p
+  })
+) => s.opened.then(() => s);
+
+const raceSprout = (f, h, p) => {
+  if (!f?.connect)
+    return Promise.reject(
+      new Error('connect unavailable')
+    );
+
+  if (CFG.concur <= 1)
+    return sprout(f, h, p);
+
+  const ts = Array(CFG.concur)
+    .fill()
+    .map(() => sprout(f, h, p));
+
+  return Promise.any(ts).then(w => {
+    ts.forEach(t =>
+      t.then(
+        s => s !== w && s.close(),
+        () => {}
+      )
+    );
+
+    return w;
+  });
+};
+
+/*
+direct → proxy
+
+先连接真实目标。
+
+如果失败且 Path 指定了 ProxyIP：
+
+连接 ProxyIP。
+*/
+
+const connectTarget = async (
+  fetcher,
+  host,
+  port,
+  proxyIP
+) => {
+  let lastError = null;
+
+  // 1. direct
+  try {
+    return await raceSprout(
+      fetcher,
+      host,
+      port
+    );
+  } catch (e) {
+    lastError = e;
+  }
+
+  // 2. proxyip
+  if (proxyIP) {
+    try {
+      return await raceSprout(
+        fetcher,
+        proxyIP.address,
+        proxyIP.port
+      );
+    } catch (e) {
+      lastError = e;
+    }
+  }
+
+  throw lastError ||
+    new Error('All connection methods failed');
+};
+
+/* =========================
+   VLESS 地址解析
+   ========================= */
+
+const parseAddr = (b, o, t) => {
+  const l =
+    t === 3
+      ? b[o++]
+      : t === 1
+        ? 4
+        : t === 4
+          ? 16
+          : null;
+
+  if (l === null)
+    return null;
+
+  const n = o + l;
+
+  return n > b.length
+    ? null
+    : {
+        targetAddrBytes: b.subarray(o, n),
+        dataOffset: n
+      };
+};
+
+const relay = c => {
+  if (
+    c.length < 24 ||
+    !matchID(c)
+  )
+    return null;
+
+  let o = 19 + c[17];
+
+  const p =
+    (c[o] << 8) |
+    c[o + 1];
+
+  let t = c[o + 2];
+
+  if (t !== 1)
+    t += 1;
+
+  const a = parseAddr(
+    c,
+    o + 3,
+    t
+  );
+
+  return a
+    ? {
+        addrType: t,
+        ...a,
+        port: p
+      }
+    : null;
+};
+
+/* =========================
+   缓冲队列
+   ========================= */
+
+const mkK = (
+  cap,
+  cpy = 0
+) => {
+  let q = [];
+  let h = 0;
+  let b = 0;
+  let buf = null;
+
+  const e = () =>
+    h >= q.length;
+
+  const trim = () => {
+    if (
+      h > 32 &&
+      h * 2 >= q.length
+    ) {
+      q = q.slice(h);
+      h = 0;
+    }
+  };
+
+  const clear = () => {
+    q = [];
+    h = 0;
+    b = 0;
+  };
+
+  const take = () => {
+    if (e())
+      return null;
+
+    const d = q[h];
+
+    q[h++] = undefined;
+
+    b -= d.byteLength;
+
+    trim();
+
+    return d;
+  };
+
+  const sow = d => {
+    const n =
+      d?.byteLength || 0;
+
+    return !n ||
+      (
+        q.push(d),
+        b += n,
+        1
+      );
+  };
+
+  const pack = d => {
+    d ||= take();
+
+    if (!d || e())
+      return [d, 0];
+
+    let n = d.byteLength;
+    let j = h;
+
+    while (j < q.length) {
+      const x = q[j];
+
+      const nn =
+        n + x.byteLength;
+
+      if (nn > cap)
+        break;
+
+      n = nn;
+      j++;
+    }
+
+    if (j === h)
+      return [d, 0];
+
+    const out =
+      buf ||= new Uint8Array(cap);
+
+    out.set(d);
+
+    for (
+      let o = d.byteLength;
+      h < j;
+    ) {
+      const x = q[h];
+
+      q[h++] = undefined;
+
+      b -= x.byteLength;
+
+      out.set(x, o);
+
+      o += x.byteLength;
+    }
+
+    trim();
+
+    const u =
+      out.subarray(0, n);
+
+    return [
+      cpy ? u.slice() : u,
+      1
+    ];
+  };
+
+  return {
+    e,
+
+    get b() {
+      return b;
+    },
+
+    clear,
+    take,
+    sow,
+    pack
+  };
+};
+
+const mkQ = cap => {
+  const k = mkK(cap);
+
+  return {
+    get empty() {
+      return k.e();
+    },
+
+    clear: k.clear,
+    sow: k.sow,
+    bundle: d => k.pack(d)
+  };
+};
+
+/* =========================
+   下行发送
+   ========================= */
+
+const mkDn = w => {
+  const cap =
+    CFG.dnPack;
+
+  const tail =
+    CFG.dnTail;
+
+  const low =
+    Math.max(
+      4096,
+      tail * 12
+    );
+
+  const k =
+    mkK(cap, 1);
+
+  let tp = 0;
+  let gen = 0;
+  let qk = 0;
+  let qr = 0;
+
+  const reap = () => {
+    tp && clearTimeout(tp);
+
+    tp = 0;
+    qr = 0;
+
+    for (;;) {
+      const [u] = k.pack();
+
+      if (!u)
+        break;
+
+      w.send(u);
+    }
+  };
+
+  const ripen = () => {
+    if (
+      k.e() ||
+      tp
+    )
+      return;
+
+    if (
+      k.b >= cap ||
+      cap - k.b < tail
+    )
+      return reap();
+
+    tp = setTimeout(() => {
+      tp = 0;
+
+      if (k.e())
+        return;
+
+      if (
+        k.b >= cap ||
+        cap - k.b < tail
+      )
+        return reap();
+
+      if (
+        qr < CFG.dnQr &&
+        (
+          gen !== qk ||
+          k.b < low
+        )
+      ) {
+        qr++;
+        qk = gen;
+
+        return ripen();
+      }
+
+      reap();
+    }, 1);
+  };
+
+  return {
+    send(u) {
+      let o = 0;
+
+      let n =
+        u?.byteLength || 0;
+
+      if (!n)
+        return;
+
+      while (o < n) {
+        const m =
+          Math.min(
+            cap - k.b,
+            n - o
+          );
+
+        if (!m) {
+          reap();
+          continue;
+        }
+
+        k.sow(
+          o || m !== n
+            ? u.subarray(
+                o,
+                o + m
+              )
+            : u
+        );
+
+        gen++;
+
+        o += m;
+
+        if (
+          k.b >= cap ||
+          cap - k.b < tail
+        )
+          reap();
+        else
+          ripen();
+      }
+    },
+
+    reap
+  };
+};
+
+const mill = async (
+  rd,
+  w
+) => {
+  const r =
+    rd.getReader({
+      mode: 'byob'
+    });
+
+  const tx =
+    mkDn(w);
+
+  let buf =
+    new ArrayBuffer(
+      CFG.chunk
+    );
+
+  try {
+    for (;;) {
+      const {
+        done,
+        value: v
+      } = await r.read(
+        new Uint8Array(
+          buf,
+          0,
+          CFG.chunk
+        )
+      );
+
+      if (done)
+        break;
+
+      if (!v?.byteLength)
+        continue;
+
+      if (
+        v.byteLength >=
+        (CFG.chunk >> 1)
+      ) {
+        tx.reap();
+
+        w.send(v);
+
+        buf =
+          new ArrayBuffer(
+            CFG.chunk
+          );
+      } else {
+        tx.send(
+          v.slice()
+        );
+
+        buf =
+          v.buffer;
+      }
+    }
+
+    tx.reap();
+  } catch {
+  } finally {
+    try {
+      tx.reap();
+    } catch {}
+
+    try {
+      r.releaseLock();
+    } catch {}
+  }
+};
+
+/* =========================
+   WebSocket 主逻辑
+   ========================= */
+
+const ws = async req => {
+  const [
+    client,
+    server
+  ] =
+    Object.values(
+      new WebSocketPair()
+    );
+
+  server.accept({
+    allowHalfOpen: true
+  });
+
+  server.binaryType =
+    'arraybuffer';
+
+  const fetcher =
+    req.fetcher;
+
+  /*
+   * 从当前 WebSocket Path
+   * 获取 ProxyIP
+   */
+  const proxyIP =
+    getProxyIP(req);
+
+  const edStr =
+    req.headers.get(
+      'sec-websocket-protocol'
+    );
+
+  const ed =
+    edStr &&
+    edStr.length <=
+      CFG.maxED * 4 / 3 + 4
+      ? Uint8Array.fromBase64(
+          edStr,
+          {
+            alphabet:
+              'base64url'
+          }
+        )
+      : null;
+
+  let curW = null;
+  let sock = null;
+  let closed = false;
+  let busy = false;
+
+  const uq =
+    mkQ(
+      CFG.upPack
+    );
+
+  const wither = () => {
+    if (closed)
+      return;
+
+    closed = true;
+
+    uq.clear();
+
+    try {
+      curW?.releaseLock();
+    } catch {}
+
+    try {
+      sock?.close();
+    } catch {}
+
+    try {
+      server.close();
+    } catch {}
+  };
+
+  const toU8 = d =>
+    d instanceof Uint8Array
+      ? d
+      : ArrayBuffer.isView(d)
+        ? new Uint8Array(
+            d.buffer,
+            d.byteOffset,
+            d.byteLength
+          )
+        : new Uint8Array(d);
+
+  const sow = d => {
+    const u =
+      toU8(d);
+
+    const n =
+      u.byteLength;
+
+    if (!n)
+      return 1;
+
+    if (uq.sow(u))
+      return 1;
+
+    wither();
+
+    return 0;
+  };
+
+  const thresh = async () => {
+    if (
+      busy ||
+      closed
+    )
+      return;
+
+    busy = true;
+
+    try {
+      for (;;) {
+        if (closed)
+          break;
+
+        if (!sock) {
+          const [d] =
+            uq.bundle();
+
+          if (!d)
+            break;
+
+          const r =
+            relay(d);
+
+          if (!r)
+            throw wither();
+
+          server.send(
+            new Uint8Array([
+              d[0],
+              0
+            ])
+          );
+
+          const host =
+            addr(
+              r.addrType,
+              r.targetAddrBytes
+            );
+
+          const port =
+            r.port;
+
+          const payload =
+            d.subarray(
+              r.dataOffset
+            );
+
+          /*
+           * 原逻辑：
+           *
+           * raceSprout(
+           *   fetcher,
+           *   host,
+           *   port
+           * )
+           *
+           * 修改后：
+           *
+           * direct → proxyIP
+           */
+          sock =
+            await connectTarget(
+              fetcher,
+              host,
+              port,
+              proxyIP
+            );
+
+          if (!sock)
+            throw wither();
+
+          curW =
+            sock.writable
+              .getWriter();
+
+          const [first] =
+            uq.bundle(
+              payload
+            );
+
+          if (
+            first?.byteLength
+          ) {
+            await curW.write(
+              first
+            );
+          }
+
+          mill(
+            sock.readable,
+            server
+          ).finally(() =>
+            wither()
+          );
+
+          continue;
+        }
+
+        const [d] =
+          uq.bundle();
+
+        if (!d)
+          break;
+
+        await curW.write(d);
+      }
+    } catch {
+      wither();
+    } finally {
+      busy = false;
+
+      !uq.empty &&
+        !closed &&
+        thresh();
+    }
+  };
+
+  if (
+    ed &&
+    sow(ed)
+  )
+    thresh();
+
+  server.addEventListener(
+    'message',
+    e => {
+      closed ||
+        (
+          sow(e.data) &&
+          thresh()
+        );
+    }
+  );
+
+  server.addEventListener(
+    'close',
+    () => wither()
+  );
+
+  server.addEventListener(
+    'error',
+    () => wither()
+  );
+
+  return new Response(
+    null,
+    {
+      status: 101,
+
+      webSocket:
+        client,
+
+      headers: {
+        'Sec-WebSocket-Extensions':
+          ''
+      }
+    }
+  );
+};
